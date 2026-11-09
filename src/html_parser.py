@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from bs4 import BeautifulSoup
-import re, os
-
+import re, os, json
+KEYS = ["so_ky_hieu", "title", "loai_van_ban", "tinh_trang_hieu_luc"]
 TARGETS = ["45/2019/QH14"]
 HEAD = {"prov-part": 2, "prov-chapter": 3, "prov-section": 4, "prov-subsection": 5, "prov-article": 6}
 NUM_ONLY = re.compile(r"^(Phần|Chương|Mục|Tiểu\s+mục)\s+(thứ\s+\S+|[IVXLC]+|\d+)\.?\s*$", re.I)
@@ -78,4 +78,6 @@ for row in ds.filter(lambda x: x['id'] in ids):
 
     with open(f"data/parsed/{s.replace('/', '-')}.md", "w", encoding="utf-8") as f:
         f.write('\n\n'.join(lines))
+    with open(f"data/parsed/{s.replace('/', '-')}.json", "w", encoding="utf-8") as f:
+        json.dump({k: found[s].get(k) for k in KEYS}, f, ensure_ascii=False)
     print(s, stats)

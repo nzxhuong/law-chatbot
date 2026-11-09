@@ -64,6 +64,8 @@ with open(os.path.join(root, "data", "chunks.jsonl"), "w", encoding="utf-8") as 
         if not file.endswith(".md"):
             continue
         doc = file[:-3]
+        mp = os.path.join(in_dir, doc + ".json")
+        meta = json.load(open(mp, encoding="utf-8")) if os.path.exists(mp) else {}
         with open(os.path.join(in_dir, file), encoding="utf-8") as f:
             md = f.read()
 
@@ -94,6 +96,7 @@ with open(os.path.join(root, "data", "chunks.jsonl"), "w", encoding="utf-8") as 
             for cid, piece in pack(label(aid, blocks)):
                 body = "\n".join(u[1] for u in piece)
                 out.write(json.dumps({
+                    **meta,
                     "id": cid, "doc": doc, "path": p, "content": body,
                     "text": f"{p}\n{body}",
                     "units": [{"id": u[0], "text": u[1]} for u in piece],
