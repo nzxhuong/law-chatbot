@@ -1,8 +1,9 @@
 from datasets import load_dataset
+from relations import build_doc_graph
 from bs4 import BeautifulSoup
 import re, os, json
-KEYS = ["so_ky_hieu", "title", "loai_van_ban", "tinh_trang_hieu_luc"]
-TARGETS = ["45/2019/QH14"]
+KEYS = ["so_ky_hieu", "title", "loai_van_ban", "tinh_trang_hieu_luc", "ngay_ban_hanh", "ngay_co_hieu_luc"]
+TARGETS = ["45/2019/QH14", "41/2024/QH15", "71/2025/QH15"]
 HEAD = {"prov-part": 2, "prov-chapter": 3, "prov-section": 4, "prov-subsection": 5, "prov-article": 6}
 NUM_ONLY = re.compile(r"^(Phần|Chương|Mục|Tiểu\s+mục)\s+(thứ\s+\S+|[IVXLC]+|\d+)\.?\s*$", re.I)
 GUESS = [
@@ -15,6 +16,7 @@ GUESS = [
 
 ds = load_dataset("th1nhng0/vietnamese-legal-documents", "content")['data']
 meta = load_dataset("th1nhng0/vietnamese-legal-documents", "metadata")['data']
+rel = load_dataset("th1nhng0/vietnamese-legal-documents", "relationships")['data']
 
 def prov_class(p):
     for i in p.get('class') or []:
@@ -81,3 +83,6 @@ for row in ds.filter(lambda x: x['id'] in ids):
     with open(f"data/parsed/{s.replace('/', '-')}.json", "w", encoding="utf-8") as f:
         json.dump({k: found[s].get(k) for k in KEYS}, f, ensure_ascii=False)
     print(s, stats)
+id_to_doc = {str(i): s.replace('/', '-') for i, s in ids.items()}
+rows = rel.filter(lambda x: str(x['doc_id']) in id_to_doc or str(x['other_doc_id']) in id_to_doc)
+json.dump(build_doc_graph(rows, id_to_doc), open("data/doc_graph.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)

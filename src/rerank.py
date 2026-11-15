@@ -1,6 +1,5 @@
 from retrieve import search, client
 from FlagEmbedding import FlagReranker
-import re
 reranker = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=True)
 
 def rerank(q, k=5, pool=20):

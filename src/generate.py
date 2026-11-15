@@ -2,12 +2,15 @@ import os, re
 from dataclasses import dataclass
 from google import genai
 from rerank import rerank, client
+from expand import expand, amenders, amender_units
 
 gemini = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 MODEL = "gemini-3.5-flash-lite"
 THRESH = 0.3
 REFUSE = "Không tìm thấy căn cứ đủ để trả lời."
 _UNIT = re.compile(r":(?:PL(\d+)\.)?D(\w+?)(?:\.K(\w+?))?(?:\.(\w+?))?(?:~\d+)?$")
+REL = {"exception": "ngoại lệ", "ref": "dẫn chiếu", "amends": "điều khoản bị văn bản này sửa đổi"}
+OP = {"add": "BỔ SUNG", "modify": "SỬA ĐỔI", "repeal": "BÃI BỎ"}
 _BRACKET = re.compile(r"\[([^\[\]]+)\]")
 _LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*")
 DIACRITIC_PROMPT = ("Thêm dấu tiếng Việt cho câu hỏi pháp luật sau. Giữ nguyên nghĩa và thứ tự từ. "
@@ -20,7 +23,10 @@ Quy tắc bắt buộc:
 3. Nếu ngữ cảnh không đủ để trả lời, nói rõ "{REFUSE}" và nêu phần còn thiếu.
 4. Trả lời ngắn gọn bằng tiếng Việt, gạch đầu dòng. Không lặp lại nguyên văn điều luật dài.
 5. Mỗi ý khẳng định phải kết thúc bằng mã trích dẫn dạng [mã], sao chép NGUYÊN VĂN từ ngữ cảnh,
-   ví dụ [45-2019-QH14:D35.K1.a]. Chọn mã cụ thể nhất có thể (Điểm > Khoản > Điều)""")
+   ví dụ [45-2019-QH14:D35.K1.a]. Chọn mã cụ thể nhất có thể (Điểm > Khoản > Điều)
+6. Dòng "↳ ĐÃ BỊ ... bởi" ngay dưới một điều khoản là văn bản sửa đổi điều khoản đó. Nội dung MỚI (trong dấu “ ”) thay cho phần gốc tương ứng: nếu khác nhau, theo nội dung mới và nói rõ phần gốc đã được sửa.
+   Nếu là BÃI BỎ thì phần gốc không còn hiệu lực; nếu là BỔ SUNG thì nội dung mới được thêm vào, không thay phần gốc.
+7. Phần THAM CHIẾU (nếu có) là điều khoản được dẫn chiếu: chỉ dùng để bổ sung, không thay phần chính. NHÃN: ngoại lệ là trường hợp loại trừ của quy định chính: nêu khi liên quan.""")
 
 
 @dataclass
@@ -119,21 +125,48 @@ def verify_citations(answer: str, units: dict[str, dict]) -> Verified:
                     uncited, num_warn, answer)
 
 
+def _clip(t, n=1200):
+    return t if len(t) <= n else t[:n] + " …"
+
+
+def build_ctx(hits):
+    """Mỗi hit kèm ngay dưới nó các văn bản sửa đổi (mỗi cặp chunk+đơn vị chỉ in 1 lần)."""
+    shown, parts, au = set(), [], []
+    for _, p in hits:
+        s = f'({p["doc"]} | {p["path"]})\n' + "\n".join(f'[{u["id"]}] {u["text"]}' for u in p["units"])
+        for a, ch in amenders(p):
+            if (ch["id"], a["src_unit"]) in shown:
+                continue
+            shown.add((ch["id"], a["src_unit"]))
+            us = amender_units(ch, a["src_unit"])
+            s += f'\n↳ ĐÃ BỊ {OP.get(a["op"], a["op"])} bởi {unit_label(a["src_unit"])}:\n' + \
+                 "\n".join(f'[{u["id"]}] {_clip(u["text"])}' for u in us)
+            au += [(ch, u) for u in us]
+        parts.append(s)
+    return "\n\n".join(parts), au
+
+
 def answer(q, history):
     sq = rewrite(q, history)
     hits = rerank(sq, k=5)
     if not hits or hits[0][0] < THRESH:
         return Verified(REFUSE, [], [], [], [], REFUSE), hits
 
-    ctx = "\n\n".join(
-        f'({p["doc"]} | {p["path"]})\n' + "\n".join(f'[{u["id"]}] {u["text"]}' for u in p["units"])
-        for _, p in hits)
+    ctx, au = build_ctx(hits)
+    extra = expand(hits)
+    if extra:
+        ctx += "\n\nTHAM CHIẾU:\n" + "\n\n".join(
+            f'({p["doc"]} | {p["path"]}) | NHÃN: {REL.get(rel, rel)}\n'
+            + "\n".join(f'[{u["id"]}] {u["text"]}' for u in p["units"])
+            for p, rel, _ in extra)
     msgs = [{"role": "system", "content": SYS}] + history[-6:] + [
         {"role": "user", "content": f"Sources:\n{ctx}\n\nQuestion: {q}"}]
     raw = llm(msgs)
 
     units = {u["id"]: {"label": unit_label(u["id"]), "text": u["text"], "hit": p}
-             for _, p in hits for u in p["units"]}
+             for p in [p for p, _, _ in extra] + [p for _, p in hits] for u in p["units"]}
+    for ch, u in au:                       # đơn vị văn bản sửa đổi cũng được phép trích dẫn
+        units.setdefault(u["id"], {"label": unit_label(u["id"]), "text": u["text"], "hit": ch})
     return verify_citations(raw, units), hits
 
 
