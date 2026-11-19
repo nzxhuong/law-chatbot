@@ -1,5 +1,5 @@
 data
-eval
+eval/*.py
 __pycache__
 *.pyc
 asd.py

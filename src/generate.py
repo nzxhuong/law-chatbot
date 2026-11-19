@@ -1,8 +1,8 @@
 import os, re
 from dataclasses import dataclass
 from google import genai
-from rerank import rerank, client
-from expand import expand, amenders, amender_units
+from .rerank import rerank, client
+from .expand import expand, amenders, amender_units
 
 gemini = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 MODEL = "gemini-3.5-flash-lite"
@@ -39,12 +39,12 @@ class Verified:
     raw: str = ""
 
 
-def llm(messages):
+def llm(messages, model_name):
     system = "\n".join(m["content"] for m in messages if m["role"] == "system")
     rest = [m for m in messages if m["role"] != "system"]
     text = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in rest)
     kw = {"system_instruction": system} if system else {}
-    r = gemini.interactions.create(model=MODEL, input=text, **kw)
+    r = gemini.interactions.create(model=model_name, input=text, **kw)
     return (r.output_text or "").strip()
 
 
@@ -146,11 +146,11 @@ def build_ctx(hits):
     return "\n\n".join(parts), au
 
 
-def answer(q, history):
+def answer(q, history, model_name):
     sq = rewrite(q, history)
     hits = rerank(sq, k=5)
     if not hits or hits[0][0] < THRESH:
-        return Verified(REFUSE, [], [], [], [], REFUSE), hits
+        return Verified(REFUSE, [], [], [], [], REFUSE), hits, ""
 
     ctx, au = build_ctx(hits)
     extra = expand(hits)
@@ -161,13 +161,13 @@ def answer(q, history):
             for p, rel, _ in extra)
     msgs = [{"role": "system", "content": SYS}] + history[-6:] + [
         {"role": "user", "content": f"Sources:\n{ctx}\n\nQuestion: {q}"}]
-    raw = llm(msgs)
+    raw = llm(msgs, model_name)
 
     units = {u["id"]: {"label": unit_label(u["id"]), "text": u["text"], "hit": p}
              for p in [p for p, _, _ in extra] + [p for _, p in hits] for u in p["units"]}
     for ch, u in au:                       # đơn vị văn bản sửa đổi cũng được phép trích dẫn
         units.setdefault(u["id"], {"label": unit_label(u["id"]), "text": u["text"], "hit": ch})
-    return verify_citations(raw, units), hits
+    return verify_citations(raw, units), hits, ctx
 
 
 if __name__ == "__main__":
