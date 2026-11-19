@@ -1,5 +1,8 @@
 # law-chatbot
 
+[**Demo: rag-legal on Hugging Face Spaces**](https://huggingface.co/spaces/NZUONG/rag-legal)
+
+
 A retrieval-augmented chatbot for Vietnamese labor and social-insurance law. It answers questions in Vietnamese, cites the exact provision (Điều / Khoản / Điểm) behind each statement, follows cross-references and later amendments, and refuses when the retrieved text is not enough to answer.
 
 > This is a research/baseline project, not legal advice.
