@@ -77,9 +77,9 @@ Results, method and caveats are in [`EVAL_REPORT.md`](eval/EVAL_REPORT.md).
 - Long first-person scenarios retrieve worse than short, direct questions (see the eval report).
 
 ## TODO
-[] Eval
-[] Graph rag?
+[ ] Eval
+[ ] Graph rag?
 
-## References
+## Resources & References
 - Jason Liu’s [There Are Only 6 RAG Evals](https://jxnl.co/writing/2025/05/19/there-are-only-6-rag-evals/)
 - [`th1nhng0/vietnamese-legal-documents`](https://huggingface.co/datasets/th1nhng0/vietnamese-legal-documents) dataset 
