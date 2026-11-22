@@ -9,51 +9,50 @@ A retrieval-augmented chatbot for Vietnamese labor and social-insurance law. It 
 
 ## Pipeline
 ```mermaid
+flowchart TD
+    U([User input: question + chat history]) --> P
 
-flowchart TD U([User input: question + chat history]) --&gt; P
-subgraph S1["Stage 1: Plan"]
-    P["plan()<br />JSON: standalone + up to 3 statute-vocab subs"]
-    P --&gt;|fail| PF["fallback: subs = []"]
-    P --&gt; BQ{history empty?}
-    PF --&gt; BQ
-    BQ --&gt;|yes| B1["base = raw q"]
-    BQ --&gt;|no| B2["base = standalone"]
-end
+    subgraph S1["Stage 1: Plan"]
+        P["plan()<br/>JSON: standalone + up to 3 statute-vocab subs"]
+        P -->|fail| PF["fallback: subs = []"]
+        P --> BQ{history empty?}
+        PF --> BQ
+        BQ -->|yes| B1["base = raw q"]
+        BQ -->|no| B2["base = standalone"]
+    end
 
-subgraph S2["Stage 2: Retrieve"]
-    B1 --&gt; RB["rerank(base, k=5)"]
-    B2 --&gt; RB
-    P --&gt;|subs| RS["rerank(sub_i, k=2) per sub"]
-    RB --&gt; M["keep base top 5<br />+ append new sub hits (dedupe, extra &lt;= 4)"]
-    RS --&gt; M
-end
+    subgraph S2["Stage 2: Retrieve"]
+        B1 --> RB["rerank(base, k=5)"]
+        B2 --> RB
+        P -->|subs| RS["rerank(sub_i, k=2) per sub"]
+        RB --> M["keep base top 5<br/>+ append new sub hits (dedupe, extra <= 4)"]
+        RS --> M
+    end
 
-subgraph RR["Inside each rerank() call"]
-    direction LR
-    D1[dense top 20] --&gt; F1[RRF fuse]
-    D2[BM25 top 20] --&gt; F1
-    F1 --&gt; RK["bge-reranker, pool 20"]
-end
-RB -.-&gt; RR
-RS -.-&gt; RR
+    subgraph RR["Inside each rerank() call"]
+        direction LR
+        D1[dense top 20] --> F1[RRF fuse]
+        D2[BM25 top 20] --> F1
+        F1 --> RK["bge-reranker, pool 20"]
+    end
+    RB -.-> RR
+    RS -.-> RR
 
-M --&gt; G{"max score &lt; 0.3?<br />(best across all queries)"}
-G --&gt;|yes| REF([Refuse: no sufficient basis])
+    M --> G{"max score < 0.3?<br/>(best across all queries)"}
+    G -->|yes| REF([Refuse: no sufficient basis])
 
-subgraph S3["Stage 3: Context"]
-    G --&gt;|no| C1["build_ctx: hits + amender text"]
-    C1 --&gt; C2["expand(): refs / exceptions / amends<br />3 seeds, cap 6, depth 2"]
-end
+    subgraph S3["Stage 3: Context"]
+        G -->|no| C1["build_ctx: hits + amender text"]
+        C1 --> C2["expand(): refs / exceptions / amends<br/>3 seeds, cap 6, depth 2"]
+    end
 
-subgraph S4["Stage 4: Generate + verify"]
-    C2 --&gt; A["LLM answer, 1 call<br />uses standalone/base, not raw follow-up"]
-    A --&gt; V["verify_citations<br />invalid / uncited / number_warnings"]
-end
+    subgraph S4["Stage 4: Generate + verify"]
+        C2 --> A["LLM answer, 1 call<br/>uses standalone/base, not raw follow-up"]
+        A --> V["verify_citations<br/>invalid / uncited / number_warnings"]
+    end
 
-V --&gt; OUT([Answer + numbered sources])
-
+    V --> OUT([Answer + numbered sources])
 ```
-
 ## What it does
 
 - **Provision-level chunks.** One chunk per Khoản (long Khoản are split per Điểm), each prefixed with its path: `law number + title > Chương > Điều`.
