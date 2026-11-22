@@ -8,10 +8,9 @@ A retrieval-augmented chatbot for Vietnamese labor and social-insurance law. It 
 > This is a research/baseline project, not legal advice.
 
 ## Pipeline
+```mermaid
 
 flowchart TD U([User input: question + chat history]) --&gt; P
-
-```
 subgraph S1["Stage 1: Plan"]
     P["plan()<br />JSON: standalone + up to 3 statute-vocab subs"]
     P --&gt;|fail| PF["fallback: subs = []"]
