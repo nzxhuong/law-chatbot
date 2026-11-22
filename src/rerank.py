@@ -9,6 +9,19 @@ def rerank(q, k=5, pool=20):
     if not isinstance(scores, list):
         scores = [scores]
     return sorted(zip(scores, cands), key=lambda x: -x[0])[:k]
+
+def retrieve_multi(q, subs, k=5, k_sub=2, extra=4):
+    base = rerank(q, k=k)
+    seen = {p["id"] for _, p in base}
+    lists = [rerank(s, k=k_sub) for s in subs]
+    out = list(base)
+    added = 0
+    for rank in range(k_sub):
+        for lst in lists:
+            if added < extra and rank < len(lst) and lst[rank][1]["id"] not in seen:
+                seen.add(lst[rank][1]["id"]); out.append(lst[rank]); added += 1
+    return out
+
 if __name__ == "__main__":
     try:
         while True:

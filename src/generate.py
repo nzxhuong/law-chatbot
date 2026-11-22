@@ -1,9 +1,8 @@
-import os, re
+import os, re, json
 from dataclasses import dataclass
 from google import genai
-from .rerank import rerank, client
+from .rerank import retrieve_multi, client
 from .expand import expand, amenders, amender_units
-
 gemini = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 MODEL = "gemini-3.5-flash-lite"
 THRESH = 0.3
@@ -28,6 +27,12 @@ Quy tắc bắt buộc:
    Nếu là BÃI BỎ thì phần gốc không còn hiệu lực; nếu là BỔ SUNG thì nội dung mới được thêm vào, không thay phần gốc.
 7. Phần THAM CHIẾU (nếu có) là điều khoản được dẫn chiếu: chỉ dùng để bổ sung, không thay phần chính. NHÃN: ngoại lệ là trường hợp loại trừ của quy định chính: nêu khi liên quan.""")
 
+PLAN_SYS = """Bạn hỗ trợ tra cứu Bộ luật Lao động Việt Nam. Từ câu hỏi (và lịch sử nếu có), trả về JSON:
+{"standalone": "câu hỏi đầy đủ, có dấu, không cần lịch sử để hiểu",
+ "queries": ["...", "..."]}
+queries: tối đa 3 truy vấn ngắn (<=15 từ), mỗi truy vấn một vấn đề pháp lý, viết bằng thuật ngữ
+của luật (vd: "tạm hoãn thực hiện hợp đồng lao động", "lao động chưa đủ 15 tuổi").
+Không bịa số Điều. Chỉ trả JSON."""
 
 @dataclass
 class Verified:
@@ -39,7 +44,7 @@ class Verified:
     raw: str = ""
 
 
-def llm(messages, model_name):
+def llm(messages, model_name = MODEL):
     system = "\n".join(m["content"] for m in messages if m["role"] == "system")
     rest = [m for m in messages if m["role"] != "system"]
     text = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in rest)
@@ -48,14 +53,16 @@ def llm(messages, model_name):
     return (r.output_text or "").strip()
 
 
-def rewrite(q, history):
-    if not history:
-        return q
+def plan(q, history, model_name):
     h = "\n".join(f'{m["role"]}: {m["content"]}' for m in history[-6:])
-    return llm([{"role": "user", "content":
-        f"Chat history:\n{h}\n\n{DIACRITIC_PROMPT} "
-        f"Output only the query.\nQuestion: {q}"}])
-
+    raw = llm([{"role": "system", "content": PLAN_SYS},
+               {"role": "user", "content": f"Lịch sử:\n{h}\n\nCâu hỏi: {q}"}], model_name)
+    try:
+        d = json.loads(re.sub(r"```(?:json)?", "", raw).strip())
+        subs = [s for s in d.get("queries", []) if isinstance(s, str) and s.strip()][:3]
+        return (d.get("standalone") or q), subs
+    except Exception:
+        return q, []          
 
 def unit_label(unit_id: str) -> str:
     """45-2019-QH14:D35.K2.b -> Điểm b Khoản 2 Điều 35 45/2019/QH14"""
@@ -147,9 +154,9 @@ def build_ctx(hits):
 
 
 def answer(q, history, model_name):
-    sq = rewrite(q, history)
-    hits = rerank(sq, k=5)
-    if not hits or hits[0][0] < THRESH:
+    sq, subs = plan(q, history, model_name)
+    hits = retrieve_multi(sq, subs)
+    if not hits or max(s for s, _ in hits) < THRESH:
         return Verified(REFUSE, [], [], [], [], REFUSE), hits, ""
 
     ctx, au = build_ctx(hits)
@@ -165,7 +172,7 @@ def answer(q, history, model_name):
 
     units = {u["id"]: {"label": unit_label(u["id"]), "text": u["text"], "hit": p}
              for p in [p for p, _, _ in extra] + [p for _, p in hits] for u in p["units"]}
-    for ch, u in au:                       # đơn vị văn bản sửa đổi cũng được phép trích dẫn
+    for ch, u in au:                      
         units.setdefault(u["id"], {"label": unit_label(u["id"]), "text": u["text"], "hit": ch})
     return verify_citations(raw, units), hits, ctx
 
@@ -177,7 +184,7 @@ if __name__ == "__main__":
             q = input("\nq> ").strip()
             if not q:
                 break
-            v, hits = answer(q, history)
+            v, hits, _ = answer(q, history, MODEL)
             print("\n" + v.text)
             for s in v.sources:
                 print(f'  [{s["n"]}] {s["label"]}')

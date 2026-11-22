@@ -1,5 +1,6 @@
 data
 eval/*.py
+eval/*.jsonl
 __pycache__
 *.pyc
 asd.py
